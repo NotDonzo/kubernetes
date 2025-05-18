@@ -1,44 +1,39 @@
-Introductie
-In deze gids leg ik uit hoe je een Kubernetes-cluster opzet met hoge beschikbaarheid (High Availability, ofwel HA). We doen dat met de Stacked etcd-topologie: de etcd-database draait dan gewoon op dezelfde machines als de control planes, wat het eenvoudiger maakt en minder netwerkverkeer oplevert. We gebruiken containerd als container runtime en Calico voor de netwerkverbindingen.
+# Kubernetes High Availability (HA) Cluster Setup Guide
 
-Meer achtergrondinfo vind je op de officiële docs:
-🔗 Kubernetes HA Topology Docs
+## Introduction
+This guide provides a step-by-step process for setting up a **Kubernetes High Availability (HA) Cluster** using the **Stacked etcd topology**. In this topology, the `etcd` database runs on the same nodes as the control plane, reducing network overhead and simplifying the setup. We will configure both **master and worker nodes**, set up a **container runtime (containerd)**, and deploy the **Kubernetes control plane** using `kubeadm`. For networking, we will use **Calico**.
 
-✅ Wat heb je nodig?
-Zorg dat je dit klaar hebt staan:
+Overview:
 
-Minimaal 3 master nodes
+![image](https://github.com/user-attachments/assets/cd8de135-0012-45bf-b5fb-5ab59eef7530)
 
-Tenminste 2 worker nodes
+More info read k8s docs: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/ha-topology/
 
-Een Load Balancer (bv. HAProxy)
+## Prerequisites
+Before we begin, ensure that you meet the following requirements:
 
-Ubuntu 22.04 of hoger op alle machines
+- **Minimum of 3 Master nodes** (for HA)
+- **At least 2 Worker nodes**
+- **A Load Balancer** (e.g., HAProxy) for distributing traffic to API servers
+- **Ubuntu 22.04+ installed** on all nodes
+- **Root or sudo privileges** on all nodes
+- **Network connectivity** between all nodes
 
-Root-/sudo-toegang tot alles
+## Step 1: Load Balancer Setup (HAProxy)
+We will use **HAProxy** to distribute API requests across multiple master nodes.
 
-Alle nodes moeten elkaar over het netwerk kunnen bereiken
-
-1️⃣ HAProxy instellen (Load Balancer)
-We gebruiken HAProxy om API-verkeer te verdelen over de masters.
-
-Installeren:
-bash
-Copy
-Edit
+### Install HAProxy
+```sh
 sudo apt update && sudo apt install -y haproxy
-Configureren:
-Bewerk dit bestand:
+```
 
-bash
-Copy
-Edit
+### Configure HAProxy
+Edit the configuration file:
+```sh
 sudo vim /etc/haproxy/haproxy.cfg
-En voeg het volgende toe:
-
-h
-Copy
-Edit
+```
+Add the following content:
+```ini
 frontend kubernetes-frontend
     bind 192.168.2.10:6443
     mode tcp
@@ -52,151 +47,148 @@ backend kubernetes-backend
     server master-1 192.168.2.11:6443 check
     server master-2 192.168.2.12:6443 check
     server master-3 192.168.2.13:6443 check
-Start HAProxy:
-bash
-Copy
-Edit
+```
+Restart HAProxy:
+```sh
 sudo systemctl restart haproxy
 sudo systemctl enable haproxy
-Test of het werkt:
-bash
-Copy
-Edit
+```
+Verify HAProxy is running:
+```sh
 nc 192.168.2.10 6443 -v
-2️⃣ Swap uitschakelen & kernel voorbereiden
-Swap uitzetten (nodig voor kubelet):
-bash
-Copy
-Edit
+```
+
+## Step 2: Disable Swap and Configure Kernel Modules
+
+### Disable Swap
+```sh
 sudo swapoff -a
 sudo sed -i '/swap/d' /etc/fstab
-Kernel-instellingen voor Kubernetes:
-bash
-Copy
-Edit
+```
+
+### Enable Kernel Modules for Kubernetes
+```sh
 cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
 net.bridge.bridge-nf-call-iptables  = 1
 net.ipv4.ip_forward                 = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 EOF
-
 sudo sysctl --system
-Vereiste kernelmodules:
-bash
-Copy
-Edit
+```
+
+### Load Required Kernel Modules
+```sh
 sudo modprobe overlay
 sudo modprobe br_netfilter
-
 cat <<EOF | sudo tee /etc/modules-load.d/containerd.conf
 overlay
 br_netfilter
 EOF
-3️⃣ Containerd installeren
-bash
-Copy
-Edit
+```
+
+## Step 3: Install Container Runtime (containerd)
+```sh
 sudo apt-get update
 sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
 sudo apt-get install -y containerd
-Configureren:
-bash
-Copy
-Edit
+```
+
+### Configure containerd
+```sh
 sudo mkdir -p /etc/containerd
 sudo containerd config default | sudo tee /etc/containerd/config.toml
 sudo vi /etc/containerd/config.toml
-Pas dit aan in de config:
+```
+Modify the following line from false to true:
 
-toml
-Copy
-Edit
+![image](https://github.com/user-attachments/assets/b79fbae1-8201-4b8b-b739-fe0a6f742a00)
+
+```ini
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
 SystemdCgroup = true
-Herstarten:
-bash
-Copy
-Edit
+```
+
+Restart and enable containerd:
+```sh
 sudo systemctl restart containerd
 sudo systemctl enable containerd
-4️⃣ Kubernetes installeren (kubeadm, kubelet, kubectl)
-bash
-Copy
-Edit
+```
+
+## Step 4: Install Kubernetes Components
+```sh
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo tee /etc/apt/trusted.gpg.d/kubernetes.asc
 echo "deb https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
 sudo apt update
 sudo apt install -y kubelet kubeadm kubectl
 sudo systemctl enable kubelet
-5️⃣ Eerste master-node initialiseren
-Voer op de eerste master dit uit:
+```
 
-bash
-Copy
-Edit
+## Step 5: Initialize Kubernetes Control Plane
+Run the following command on the **primary master node**:
+```sh
 sudo kubeadm init --control-plane-endpoint "192.168.2.10:6443" --upload-certs --pod-network-cidr=192.168.0.0/16
-Bewaar de join-commando's die worden gegenereerd.
+```
+After successful initialization, save the **join command** that kubeadm outputs.
 
-kubectl instellen:
-bash
-Copy
-Edit
+### Configure kubectl for the Primary Master Node
+```sh
 mkdir -p $HOME/.kube
 sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
-6️⃣ Andere masters & workers toevoegen
-Extra master-nodes:
-Gebruik dit commando op master 2 en 3 (gebruik de gegevens van stap 5):
+```
 
-bash
-Copy
-Edit
+## Step 6: Join Additional Masters and Workers
+
+### Join Additional Master Nodes
+Run the following command on each **additional master** node:
+```sh
 kubeadm join 192.168.2.10:6443 --token <token> \
     --discovery-token-ca-cert-hash sha256:<hash> \
     --control-plane --certificate-key <cert-key>
-Worker-nodes:
-bash
-Copy
-Edit
+```
+
+### Join Worker Nodes
+Run the following command on each **worker node**:
+```sh
 kubeadm join 192.168.2.10:6443 --token <token> \
     --discovery-token-ca-cert-hash sha256:<hash>
-7️⃣ Calico deployen (netwerk-plugin)
-bash
-Copy
-Edit
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/calico.yaml
-Controleren of alle nodes “Ready” zijn:
-bash
-Copy
-Edit
-kubectl get nodes
-Indien nodig:
+```
 
-bash
-Copy
-Edit
+## Step 7: Deploy Network Plugin (Calico)
+```sh
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/calico.yaml
+```
+Verify nodes are ready:
+```sh
+kubectl get nodes
+```
+If needed, restart kubelet:
+```sh
 sudo systemctl restart kubelet
-8️⃣ ETCD-cluster controleren
-ETCD client installeren:
-bash
-Copy
-Edit
-sudo apt update && sudo apt install -y etcd-client
-Status van leden checken:
-bash
-Copy
-Edit
+```
+
+## Step 8: Verify ETCD Cluster
+
+### Install etcd client
+```sh
+apt update && apt install -y etcd-client
+```
+
+### Check the ETCD Members
+```sh
 ETCDCTL_API=3 etcdctl member list \
   --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/server.crt \
   --key=/etc/kubernetes/pki/etcd/server.key
-🎉 Klaar!
-Je HA Kubernetes-cluster is nu live. Check of alle nodes er goed bij staan:
+```
 
-bash
-Copy
-Edit
+## Conclusion
+Your **Kubernetes HA cluster** is now set up with multiple master and worker nodes using `kubeadm`, `containerd`, and `Calico`. Verify that all nodes are in a `Ready` state using:
+```sh
 kubectl get nodes
-Als er iets niet klopt (bijv. een node is “NotReady”), check je netwerk en herstart eventueel kubelet.
+```
+If any nodes are **NotReady**, restart the `kubelet` service and check your networking setup.
+
+### 🎉 Congratulations! Your Kubernetes cluster is now operational and highly available. Sudo Su Masterrr 🚀
 
