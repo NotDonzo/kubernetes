@@ -1,28 +1,24 @@
-# Kubernetes High Availability (HA) Cluster Setup Guide
+Kubernetes High Availability (HA) Cluster Setup Guide
+Introduction
+This guide will help you set up a Kubernetes High Availability (HA) Cluster using the Stacked etcd configuration. In this approach, the etcd database runs directly on the same machines as the control plane, simplifying the deployment and improving performance. We’ll configure both control plane (master) and worker nodes, use containerd as the container runtime, and install the Kubernetes control plane via kubeadm. For the network layer, we’ll be deploying Calico.
 
-## Introduction
-This guide provides a step-by-step process for setting up a **Kubernetes High Availability (HA) Cluster** using the **Stacked etcd topology**. In this topology, the `etcd` database runs on the same nodes as the control plane, reducing network overhead and simplifying the setup. We will configure both **master and worker nodes**, set up a **container runtime (containerd)**, and deploy the **Kubernetes control plane** using `kubeadm`. For networking, we will use **Calico**.
+Prerequisites
+Before you begin, make sure you have the following ready:
 
-Overview:
+3 or more master nodes (for redundancy and failover)
 
-![image](https://github.com/user-attachments/assets/cd8de135-0012-45bf-b5fb-5ab59eef7530)
+At least 2 worker nodes
 
-More info read k8s docs: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/ha-topology/
+A load balancer (like HAProxy) to route API traffic to master nodes
 
-## Prerequisites
-Before we begin, ensure that you meet the following requirements:
+Ubuntu 22.04 or newer on all nodes
 
-- **Minimum of 3 Master nodes** (for HA)
-- **At least 2 Worker nodes**
-- **A Load Balancer** (e.g., HAProxy) for distributing traffic to API servers
-- **Ubuntu 22.04+ installed** on all nodes
-- **Root or sudo privileges** on all nodes
-- **Network connectivity** between all nodes
+Root or sudo access
 
-## Step 1: Load Balancer Setup (HAProxy)
-We will use **HAProxy** to distribute API requests across multiple master nodes.
+Full network connectivity between all nodes
 
-### Install HAProxy
+Step 1: Load Balancer Setup (HAProxy)
+We'll install and configure HAProxy to distribute API requests across the master nodes.
 ```sh
 sudo apt update && sudo apt install -y haproxy
 ```
@@ -189,6 +185,4 @@ Your **Kubernetes HA cluster** is now set up with multiple master and worker nod
 kubectl get nodes
 ```
 If any nodes are **NotReady**, restart the `kubelet` service and check your networking setup.
-
-### 🎉 Congratulations! Your Kubernetes cluster is now operational and highly available. Sudo Su Masterrr 🚀
 
